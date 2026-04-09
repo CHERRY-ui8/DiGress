@@ -32,10 +32,6 @@ class EnergyGuidance(nn.Module):
         self.lambda_scale = lambda_scale
         self.clip_grad_max = clip_grad_max
 
-    @property
-    def energy_fns(self):
-        return list(self._energy_fns)
-
     def combined_energy(self, X_soft: torch.Tensor, E_soft: torch.Tensor, node_mask: torch.Tensor) -> torch.Tensor:
         log_pi = torch.tensor(
             [math.log(w) for w in self.weights],
@@ -67,6 +63,10 @@ class EnergyGuidance(nn.Module):
             E_in = E_soft.detach().requires_grad_(True)
             energy = self.combined_energy(X_in, E_in, node_mask)
             energy.backward()
+            if X_in.grad is None:
+                X_in.grad = torch.zeros_like(X_in)
+            if E_in.grad is None:
+                E_in.grad = torch.zeros_like(E_in)
             torch.nn.utils.clip_grad_norm_([X_in, E_in], max_norm=self.clip_grad_max)
 
             X_guided = X_in - lr * X_in.grad

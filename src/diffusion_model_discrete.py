@@ -494,7 +494,7 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
 
     @torch.no_grad()
     def sample_batch(self, batch_id: int, batch_size: int, keep_chain: int, number_chain_steps: int,
-                     save_final: int, num_nodes=None):
+                     save_final: int, num_nodes=None, guidance=None):
         """
         :param batch_id: int
         :param batch_size: int
@@ -502,6 +502,7 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
         :param save_final: int: number of predictions to save to file
         :param keep_chain: int: number of chains to save to file
         :param keep_chain_steps: number of timesteps to save for each chain
+        :param guidance: optional EnergyGuidance applied to soft x0 predictions each step (inference only).
         :return: molecule_list. Each element of this list is a tuple (atom_types, charges, positions)
         """
         if num_nodes is None:
@@ -537,7 +538,9 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
             t_norm = t_array / self.T
 
             # Sample z_s
-            sampled_s, discrete_sampled_s = self.sample_p_zs_given_zt(s_norm, t_norm, X, E, y, node_mask)
+            sampled_s, discrete_sampled_s = self.sample_p_zs_given_zt(
+                s_norm, t_norm, X, E, y, node_mask, guidance=guidance
+            )
             X, E, y = sampled_s.X, sampled_s.E, sampled_s.y
 
             # Save the first keep_chain graphs
@@ -600,7 +603,7 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
 
         return molecule_list
 
-    def sample_p_zs_given_zt(self, s, t, X_t, E_t, y_t, node_mask):
+    def sample_p_zs_given_zt(self, s, t, X_t, E_t, y_t, node_mask, guidance=None):
         """Samples from zs ~ p(zs | zt). Only used during sampling.
            if last_step, return the graph prediction as well"""
         bs, n, dxs = X_t.shape
@@ -621,6 +624,11 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
         # Normalize predictions
         pred_X = F.softmax(pred.X, dim=-1)               # bs, n, d0
         pred_E = F.softmax(pred.E, dim=-1)               # bs, n, n, d0
+
+        if guidance is not None:
+            t_mean = t.mean()
+            effective_lambda = (guidance.lambda_scale * t_mean).item()
+            pred_X, pred_E = guidance.guide(pred_X, pred_E, node_mask, lambda_scale=effective_lambda)
 
         p_s_and_t_given_0_X = diffusion_utils.compute_batched_over0_posterior_distribution(X_t=X_t,
                                                                                            Qt=Qt.X,
