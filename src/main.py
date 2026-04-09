@@ -5,6 +5,7 @@ import warnings
 
 import torch
 torch.cuda.empty_cache()
+torch.set_float32_matmul_precision('high')
 import hydra
 from omegaconf import DictConfig
 from pytorch_lightning import Trainer
@@ -147,6 +148,49 @@ def main(cfg: DictConfig):
         model_kwargs = {'dataset_infos': dataset_infos, 'train_metrics': train_metrics,
                         'sampling_metrics': sampling_metrics, 'visualization_tools': visualization_tools,
                         'extra_features': extra_features, 'domain_features': domain_features}
+    elif dataset_config["name"] == 'metabolite':
+        from metrics.molecular_metrics import TrainMolecularMetrics, SamplingMolecularMetrics
+        from metrics.molecular_metrics_discrete import TrainMolecularMetricsDiscrete
+        from diffusion.extra_features_molecular import ExtraMolecularFeatures
+        from analysis.visualization import MolecularVisualization
+        from datasets.metabolite_dataset import (
+            MetaboliteDataModule,
+            MetaboliteInfos,
+            get_train_smiles,
+        )
+
+        datamodule = MetaboliteDataModule(cfg)
+        dataset_infos = MetaboliteInfos(
+            datamodule, cfg,
+            recompute_statistics=cfg.general.get('recompute_statistics', False)
+        )
+        train_smiles = get_train_smiles(
+            cfg, datamodule.train_dataloader(), dataset_infos,
+            evaluate_dataset=cfg.general.get('evaluate_dataset', False)
+        )
+
+        if cfg.model.type == 'discrete' and cfg.model.extra_features is not None:
+            extra_features = ExtraFeatures(cfg.model.extra_features, dataset_info=dataset_infos)
+            domain_features = ExtraMolecularFeatures(dataset_infos=dataset_infos)
+        else:
+            extra_features = DummyExtraFeatures()
+            domain_features = DummyExtraFeatures()
+
+        dataset_infos.compute_input_output_dims(
+            datamodule=datamodule, extra_features=extra_features, domain_features=domain_features
+        )
+
+        if cfg.model.type == 'discrete':
+            train_metrics = TrainMolecularMetricsDiscrete(dataset_infos)
+        else:
+            train_metrics = TrainMolecularMetrics(dataset_infos)
+
+        sampling_metrics = SamplingMolecularMetrics(dataset_infos, train_smiles)
+        visualization_tools = MolecularVisualization(cfg.dataset.remove_h, dataset_infos=dataset_infos)
+
+        model_kwargs = {'dataset_infos': dataset_infos, 'train_metrics': train_metrics,
+                        'sampling_metrics': sampling_metrics, 'visualization_tools': visualization_tools,
+                        'extra_features': extra_features, 'domain_features': domain_features}
     else:
         raise NotImplementedError("Unknown dataset {}".format(cfg["dataset"]))
 
@@ -192,6 +236,7 @@ def main(cfg: DictConfig):
                       accelerator='gpu' if use_gpu else 'cpu',
                       devices=cfg.general.gpus if use_gpu else 1,
                       max_epochs=cfg.train.n_epochs,
+                      precision="bf16-mixed",  # 混合精度训练，提高训练速度
                       check_val_every_n_epoch=cfg.general.check_val_every_n_epochs,
                       fast_dev_run=cfg.general.name == 'debug',
                       enable_progress_bar=False,

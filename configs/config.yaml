@@ -1,16 +1,20 @@
+# Default: metabolite training (no experiment group, no @global overrides).
+#
+# Run from repo root:
+#   python src/main.py
+#
+# Switch back to QM9-style stack:
+#   python src/main.py dataset=qm9 general=general_qm9 train=train_qm9 model=discrete_qm9
+
 defaults:
     - _self_
-    - general : general_default
-    - model : discrete
-    - train : train_default
-    - dataset : qm9
+    - general: general_default
+    - model: discrete
+    - train: train_default
+    - dataset: metabolite
 
 hydra:
   job:
     chdir: True
   run:
     dir: ../outputs/${now:%Y-%m-%d}/${now:%H-%M-%S}-${general.name}
-
-
-
-

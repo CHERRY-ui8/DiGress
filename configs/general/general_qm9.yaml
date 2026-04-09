@@ -1,23 +1,18 @@
-# General defaults for metabolite training
-name: 'metabolite-digress'
-
+# General defaults tuned for small molecules / QM9 runs
+name: 'graph-tf-model'
 wandb: 'online'
 gpus: 1
-
 resume: null
 test_only: null
-
 check_val_every_n_epochs: 5
 sample_every_val: 4
 val_check_interval: null
-samples_to_generate: 256
+samples_to_generate: 512
 samples_to_save: 20
 chains_to_save: 1
 log_every_steps: 50
 number_chain_steps: 50
-
-final_model_samples_to_generate: 5000
+final_model_samples_to_generate: 10000
 final_model_samples_to_save: 30
-final_model_chains_to_save: 10
-
+final_model_chains_to_save: 20
 evaluate_all_checkpoints: False

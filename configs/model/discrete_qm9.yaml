@@ -1,0 +1,12 @@
+# Original discrete model size for QM9 (use: model=discrete_qm9)
+type: 'discrete'
+transition: 'marginal'
+model: 'graph_tf'
+diffusion_steps: 500
+diffusion_noise_schedule: 'cosine'
+
+n_layers: 9
+extra_features: 'all'
+hidden_mlp_dims: {'X': 512, 'E': 256, 'y': 512}
+hidden_dims: {'dx': 512, 'de': 128, 'dy': 512, 'n_head': 8, 'dim_ffX': 512, 'dim_ffE': 256, 'dim_ffy': 512}
+lambda_train: [5, 0]

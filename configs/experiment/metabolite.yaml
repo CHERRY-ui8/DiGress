@@ -1,0 +1,14 @@
+# Legacy file — metabolite settings now live in the root defaults:
+#   configs/config.yaml → dataset: metabolite
+#   configs/general/general_default.yaml
+#   configs/train/train_default.yaml
+#   configs/model/discrete.yaml
+#   configs/dataset/metabolite.yaml
+#
+# Run:
+#   python src/main.py
+#
+# If you still pass experiment=metabolite (old Hydra group), it will add an unused
+# `experiment` subtree. Prefer the command above.
+
+dummy: true

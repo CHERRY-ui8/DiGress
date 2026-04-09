@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 from torchmetrics import Metric, MetricCollection
 from torch import Tensor
 import wandb
@@ -13,7 +14,6 @@ class CEPerClass(Metric):
         self.add_state('total_ce', default=torch.tensor(0.), dist_reduce_fx="sum")
         self.add_state('total_samples', default=torch.tensor(0.), dist_reduce_fx="sum")
         self.softmax = torch.nn.Softmax(dim=-1)
-        self.binary_cross_entropy = torch.nn.BCELoss(reduction='sum')
 
     def update(self, preds: Tensor, target: Tensor) -> None:
         """Update state with predictions and targets.
@@ -30,7 +30,15 @@ class CEPerClass(Metric):
         target = target[:, self.class_id]
         target = target[mask]
 
-        output = self.binary_cross_entropy(prob, target)
+        # Per-class BCE uses probabilities (after softmax), not logits. AMP marks plain BCE as unsafe;
+        # run in float32 with autocast disabled on CUDA.
+        prob_f = prob.float().clamp(min=1e-7, max=1.0 - 1e-7)
+        target_f = target.float()
+        if prob_f.is_cuda:
+            with torch.cuda.amp.autocast(enabled=False):
+                output = F.binary_cross_entropy(prob_f, target_f, reduction="sum")
+        else:
+            output = F.binary_cross_entropy(prob_f, target_f, reduction="sum")
         self.total_ce += output
         self.total_samples += prob.numel()
 

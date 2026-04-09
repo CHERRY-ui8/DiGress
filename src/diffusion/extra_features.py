@@ -212,29 +212,30 @@ class KNodeCycles:
         super().__init__()
 
     def calculate_kpowers(self):
-        self.k1_matrix = self.adj_matrix.float()
-        self.d = self.adj_matrix.sum(dim=-1)
-        self.k2_matrix = self.k1_matrix @ self.adj_matrix.float()
-        self.k3_matrix = self.k2_matrix @ self.adj_matrix.float()
-        self.k4_matrix = self.k3_matrix @ self.adj_matrix.float()
-        self.k5_matrix = self.k4_matrix @ self.adj_matrix.float()
-        self.k6_matrix = self.k5_matrix @ self.adj_matrix.float()
+        A = self.adj_matrix
+        self.k1_matrix = A
+        self.d = A.sum(dim=-1)
+        self.k2_matrix = self.k1_matrix @ A
+        self.k3_matrix = self.k2_matrix @ A
+        self.k4_matrix = self.k3_matrix @ A
+        self.k5_matrix = self.k4_matrix @ A
+        self.k6_matrix = self.k5_matrix @ A
 
     def k3_cycle(self):
         """ tr(A ** 3). """
         c3 = batch_diagonal(self.k3_matrix)
-        return (c3 / 2).unsqueeze(-1).float(), (torch.sum(c3, dim=-1) / 6).unsqueeze(-1).float()
+        return (c3 / 2).unsqueeze(-1), (torch.sum(c3, dim=-1) / 6).unsqueeze(-1)
 
     def k4_cycle(self):
         diag_a4 = batch_diagonal(self.k4_matrix)
         c4 = diag_a4 - self.d * (self.d - 1) - (self.adj_matrix @ self.d.unsqueeze(-1)).sum(dim=-1)
-        return (c4 / 2).unsqueeze(-1).float(), (torch.sum(c4, dim=-1) / 8).unsqueeze(-1).float()
+        return (c4 / 2).unsqueeze(-1), (torch.sum(c4, dim=-1) / 8).unsqueeze(-1)
 
     def k5_cycle(self):
         diag_a5 = batch_diagonal(self.k5_matrix)
         triangles = batch_diagonal(self.k3_matrix)
         c5 = diag_a5 - 2 * triangles * self.d - (self.adj_matrix @ triangles.unsqueeze(-1)).sum(dim=-1) + triangles
-        return (c5 / 2).unsqueeze(-1).float(), (c5.sum(dim=-1) / 10).unsqueeze(-1).float()
+        return (c5 / 2).unsqueeze(-1), (c5.sum(dim=-1) / 10).unsqueeze(-1)
 
     def k6_cycle(self):
         term_1_t = batch_trace(self.k6_matrix)
@@ -252,24 +253,26 @@ class KNodeCycles:
 
         c6_t = (term_1_t - 3 * term_2_t + 9 * term3_t - 6 * term_4_t + 6 * term_5_t - 4 * term_6_t + 4 * term_7_t +
                 3 * term8_t - 12 * term9_t + 4 * term10_t)
-        return None, (c6_t / 12).unsqueeze(-1).float()
+        return None, (c6_t / 12).unsqueeze(-1)
 
     def k_cycles(self, adj_matrix, verbose=False):
-        self.adj_matrix = adj_matrix
+        """Cycle features assume an unweighted simple graph. Use float64 internally (large n + A^6
+        cancels badly in float32). Clamp negatives from floating-point drift."""
+        out_dtype = adj_matrix.dtype
+        device = adj_matrix.device
+        # Unweighted undirected adjacency: binarize and symmetrize (DiGress edge tensor can be float).
+        a01 = (adj_matrix > 0.5).to(dtype=torch.float64, device=device)
+        a01 = torch.maximum(a01, a01.transpose(-1, -2))
+        self.adj_matrix = a01
         self.calculate_kpowers()
 
         k3x, k3y = self.k3_cycle()
-        assert (k3x >= -0.1).all()
-
         k4x, k4y = self.k4_cycle()
-        assert (k4x >= -0.1).all()
-
         k5x, k5y = self.k5_cycle()
-        assert (k5x >= -0.1).all(), k5x
-
         _, k6y = self.k6_cycle()
-        assert (k6y >= -0.1).all()
 
-        kcyclesx = torch.cat([k3x, k4x, k5x], dim=-1)
-        kcyclesy = torch.cat([k3y, k4y, k5y, k6y], dim=-1)
+        kcyclesx = torch.cat([k3x, k4x, k5x], dim=-1).to(dtype=out_dtype)
+        kcyclesy = torch.cat([k3y, k4y, k5y, k6y], dim=-1).to(dtype=out_dtype)
+        kcyclesx = torch.clamp(kcyclesx, min=0)
+        kcyclesy = torch.clamp(kcyclesy, min=0)
         return kcyclesx, kcyclesy

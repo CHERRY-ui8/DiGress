@@ -5,6 +5,7 @@ from torch_geometric.utils import to_dense_adj, to_dense_batch
 import torch
 import omegaconf
 import wandb
+from pytorch_lightning.callbacks import Callback
 
 
 def create_folders(args):
@@ -137,3 +138,60 @@ def setup_wandb(cfg):
               'settings': wandb.Settings(_disable_stats=True), 'reinit': True, 'mode': cfg.general.wandb}
     wandb.init(**kwargs)
     wandb.save('*.txt')
+
+
+class EMA(Callback):
+    """Exponential Moving Average of model parameters."""
+    def __init__(self, decay: float = 0.999):
+        super().__init__()
+        if not (0.0 < decay < 1.0):
+            raise ValueError(f"EMA decay must be in (0, 1), got {decay}")
+        self.decay = decay
+        self.ema_state = {}
+        self.backup_state = {}
+
+    def on_fit_start(self, trainer, pl_module):
+        self.ema_state = {
+            name: p.detach().clone()
+            for name, p in pl_module.named_parameters()
+            if p.requires_grad
+        }
+
+    @torch.no_grad()
+    def on_train_batch_end(self, trainer, pl_module, outputs, batch, batch_idx):
+        if not self.ema_state:
+            return
+        for name, p in pl_module.named_parameters():
+            if not p.requires_grad:
+                continue
+            self.ema_state[name].mul_(self.decay).add_(p.detach(), alpha=1.0 - self.decay)
+
+    def _swap_in_ema(self, pl_module):
+        if not self.ema_state:
+            return
+        self.backup_state = {}
+        for name, p in pl_module.named_parameters():
+            if not p.requires_grad:
+                continue
+            self.backup_state[name] = p.detach().clone()
+            p.data.copy_(self.ema_state[name].data)
+
+    def _restore_backup(self, pl_module):
+        if not self.backup_state:
+            return
+        for name, p in pl_module.named_parameters():
+            if name in self.backup_state:
+                p.data.copy_(self.backup_state[name].data)
+        self.backup_state = {}
+
+    def on_validation_epoch_start(self, trainer, pl_module):
+        self._swap_in_ema(pl_module)
+
+    def on_validation_epoch_end(self, trainer, pl_module):
+        self._restore_backup(pl_module)
+
+    def on_test_epoch_start(self, trainer, pl_module):
+        self._swap_in_ema(pl_module)
+
+    def on_test_epoch_end(self, trainer, pl_module):
+        self._restore_backup(pl_module)

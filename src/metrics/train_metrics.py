@@ -94,13 +94,23 @@ class TrainLossDiscrete(nn.Module):
 
         loss_X = self.node_loss(flat_pred_X, flat_true_X) if true_X.numel() > 0 else 0.0
         loss_E = self.edge_loss(flat_pred_E, flat_true_E) if true_E.numel() > 0 else 0.0
-        loss_y = self.y_loss(pred_y, true_y) if true_y.numel() > 0 else 0.0
+        # Skip y CE when unused (e.g. lambda_train[1]==0) or when the model has no discrete y head
+        # (output_dims['y']==0). Otherwise cross_entropy runs with C=0 or non-class targets and triggers a
+        # CUDA device-side assert (true_y may be continuous, e.g. metabolite DreaMS embeddings).
+        use_y_ce = (
+            self.lambda_train[1] != 0
+            and true_y.numel() > 0
+            and pred_y is not None
+            and pred_y.ndim >= 2
+            and pred_y.size(-1) > 0
+        )
+        loss_y = self.y_loss(pred_y, true_y) if use_y_ce else 0.0
 
         if log:
             to_log = {"train_loss/batch_CE": (loss_X + loss_E + loss_y).detach(),
                       "train_loss/X_CE": self.node_loss.compute() if true_X.numel() > 0 else -1,
                       "train_loss/E_CE": self.edge_loss.compute() if true_E.numel() > 0 else -1,
-                      "train_loss/y_CE": self.y_loss.compute() if true_y.numel() > 0 else -1}
+                      "train_loss/y_CE": self.y_loss.compute() if use_y_ce else -1}
             if wandb.run:
                 wandb.log(to_log, commit=True)
         return loss_X + self.lambda_train[0] * loss_E + self.lambda_train[1] * loss_y
@@ -112,7 +122,7 @@ class TrainLossDiscrete(nn.Module):
     def log_epoch_metrics(self):
         epoch_node_loss = self.node_loss.compute() if self.node_loss.total_samples > 0 else -1
         epoch_edge_loss = self.edge_loss.compute() if self.edge_loss.total_samples > 0 else -1
-        epoch_y_loss = self.train_y_loss.compute() if self.y_loss.total_samples > 0 else -1
+        epoch_y_loss = self.y_loss.compute() if self.y_loss.total_samples > 0 else -1
 
         to_log = {"train_epoch/x_CE": epoch_node_loss,
                   "train_epoch/E_CE": epoch_edge_loss,

@@ -105,6 +105,9 @@ class AbstractDatasetInfos:
                                              example_batch.batch)
         example_data = {'X_t': ex_dense.X, 'E_t': ex_dense.E, 'y_t': example_batch['y'], 'node_mask': node_mask}
 
+        # Width of graph-level conditioning in the batch (e.g. DreaMS); sampling must match this in forward().
+        self.raw_y_dim = int(example_batch['y'].size(1))
+
         self.input_dims = {'X': example_batch['x'].size(1),
                            'E': example_batch['edge_attr'].size(1),
                            'y': example_batch['y'].size(1) + 1}      # + 1 due to time conditioning

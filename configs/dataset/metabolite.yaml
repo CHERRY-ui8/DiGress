@@ -1,0 +1,13 @@
+# configs/dataset/metabolite.yaml
+name: metabolite
+datadir: data/metabolite/
+hdf5_path: /root/DreaMS/data/DreaMS_Atlas/nist20_mona_clean_merged_spectra_dreams_hidden_nist20.hdf5
+
+# 对应 MetaboliteInfos 里 remove_h=True 的参数
+remove_h: True
+num_atom_types: 9   # C N O S P F Cl Br I
+max_n_nodes: 200
+
+# true：n_nodes / node_types / edge_types / valency 从训练集统计（marginal 扩散与数据一致）
+# false：用手写占位（仅调试或对齐旧实验）
+metabolite_use_data_statistics: false
