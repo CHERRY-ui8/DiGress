@@ -240,7 +240,8 @@ class GraphTransformer(nn.Module):
                                                             dy=hidden_dims['dy'],
                                                             n_head=hidden_dims['n_head'],
                                                             dim_ffX=hidden_dims['dim_ffX'],
-                                                            dim_ffE=hidden_dims['dim_ffE'])
+                                                            dim_ffE=hidden_dims['dim_ffE'],
+                                                            dim_ffy=hidden_dims['dim_ffy'])
                                         for i in range(n_layers)])
 
         self.mlp_out_X = nn.Sequential(nn.Linear(hidden_dims['dx'], hidden_mlp_dims['X']), act_fn_out,

@@ -5,20 +5,20 @@ model: 'graph_tf'
 diffusion_steps: 500
 diffusion_noise_schedule: 'cosine'
 
-n_layers: 6
+n_layers: 9
 extra_features: 'all'
 
 hidden_mlp_dims:
   X: 256
   E: 128
-  y: 256
-hidden_dims:
+  y: 1024
+hidden_dims:  # transformer 一般 dim_ff = 4 * d_model，不过图模型里 FFN 太大会很贵，所以 dim_ffE 常保守
   dx: 256
   de: 128
-  dy: 256
+  dy: 384
   n_head: 8
-  dim_ffX: 256
+  dim_ffX: 768
   dim_ffE: 128
-  dim_ffy: 256
+  dim_ffy: 2048
 
 lambda_train: [5, 0]
