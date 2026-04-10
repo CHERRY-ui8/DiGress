@@ -5,6 +5,7 @@ import pytorch_lightning as pl
 import time
 import wandb
 import os
+from typing import Optional
 
 from models.transformer_model import GraphTransformer
 from diffusion.noise_schedule import DiscreteUniformTransition, PredefinedNoiseScheduleDiscrete,\
@@ -494,7 +495,8 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
 
     @torch.no_grad()
     def sample_batch(self, batch_id: int, batch_size: int, keep_chain: int, number_chain_steps: int,
-                     save_final: int, num_nodes=None, guidance=None):
+                     save_final: int, num_nodes=None, guidance=None,
+                     y_condition: Optional[torch.Tensor] = None):
         """
         :param batch_id: int
         :param batch_size: int
@@ -503,6 +505,8 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
         :param keep_chain: int: number of chains to save to file
         :param keep_chain_steps: number of timesteps to save for each chain
         :param guidance: optional EnergyGuidance applied to soft x0 predictions each step (inference only).
+        :param y_condition: optional (batch_size, raw_y_dim) tensor (e.g. DreaMS embedding). When set, keeps the same
+               conditioning at every denoising step, matching training-time noisy_data['y_t'].
         :return: molecule_list. Each element of this list is a tuple (atom_types, charges, positions)
         """
         if num_nodes is None:
@@ -519,8 +523,18 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
         # Sample noise  -- z has size (n_samples, n_nodes, n_features)
         z_T = diffusion_utils.sample_discrete_feature_noise(limit_dist=self.limit_dist, node_mask=node_mask)
         X, E, y = z_T.X, z_T.E, z_T.y
+        cond_y = None
         if self.raw_y_dim > 0:
-            y = torch.zeros(X.size(0), self.raw_y_dim, device=X.device, dtype=X.dtype)
+            if y_condition is not None:
+                assert y_condition.shape == (batch_size, self.raw_y_dim), (
+                    f"y_condition shape {tuple(y_condition.shape)} != ({batch_size}, {self.raw_y_dim})"
+                )
+                cond_y = y_condition.to(device=X.device, dtype=X.dtype)
+            else:
+                cond_y = None
+            y = cond_y if cond_y is not None else torch.zeros(
+                X.size(0), self.raw_y_dim, device=X.device, dtype=X.dtype
+            )
 
         assert (E == torch.transpose(E, 1, 2)).all()
         assert number_chain_steps < self.T
@@ -539,7 +553,7 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
 
             # Sample z_s
             sampled_s, discrete_sampled_s = self.sample_p_zs_given_zt(
-                s_norm, t_norm, X, E, y, node_mask, guidance=guidance
+                s_norm, t_norm, X, E, y, node_mask, guidance=guidance, cond_y=cond_y
             )
             X, E, y = sampled_s.X, sampled_s.E, sampled_s.y
 
@@ -603,7 +617,8 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
 
         return molecule_list
 
-    def sample_p_zs_given_zt(self, s, t, X_t, E_t, y_t, node_mask, guidance=None):
+    def sample_p_zs_given_zt(self, s, t, X_t, E_t, y_t, node_mask, guidance=None,
+                             cond_y: Optional[torch.Tensor] = None):
         """Samples from zs ~ p(zs | zt). Only used during sampling.
            if last_step, return the graph prediction as well"""
         bs, n, dxs = X_t.shape
@@ -663,7 +678,13 @@ class DiscreteDenoisingDiffusion(pl.LightningModule):
         assert (E_s == torch.transpose(E_s, 1, 2)).all()
         assert (X_t.shape == X_s.shape) and (E_t.shape == E_s.shape)
 
-        y_next = torch.zeros(y_t.shape[0], self.raw_y_dim, device=X_s.device, dtype=X_s.dtype)
+        if self.raw_y_dim > 0:
+            if cond_y is not None:
+                y_next = cond_y.to(device=X_s.device, dtype=X_s.dtype)
+            else:
+                y_next = torch.zeros(y_t.shape[0], self.raw_y_dim, device=X_s.device, dtype=X_s.dtype)
+        else:
+            y_next = torch.zeros(y_t.shape[0], self.raw_y_dim, device=X_s.device, dtype=X_s.dtype)
         out_one_hot = utils.PlaceHolder(X=X_s, E=E_s, y=y_next)
         out_discrete = utils.PlaceHolder(X=X_s, E=E_s, y=y_next)
 
